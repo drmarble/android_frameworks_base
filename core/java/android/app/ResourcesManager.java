@@ -177,7 +177,7 @@ public class ResourcesManager {
             Configuration overrideConfiguration, CompatibilityInfo compatInfo, IBinder token,
             Context context, boolean isThemeable) {
         final float scale = compatInfo.applicationScale;
-        final ThemeConfig themeConfig = isThemeable ? getThemeConfig() : null;
+        ThemeConfig themeConfig = getThemeConfig();
         ResourcesKey key = new ResourcesKey(resDir, displayId, overrideConfiguration, scale,
                 isThemeable, themeConfig, token);
         Resources r;
@@ -257,25 +257,27 @@ public class ResourcesManager {
 
         boolean iconsAttached = false;
         /* Attach theme information to the resulting AssetManager when appropriate. */
-        if (isThemeable && config != null && !context.getPackageManager().isSafeMode()) {
-            if (config.themeConfig == null) {
+        if (config != null && !context.getPackageManager().isSafeMode()) {
+            if (themeConfig == null) {
                 try {
-                    config.themeConfig = ThemeConfig.getBootTheme(context.getContentResolver());
+                    themeConfig = ThemeConfig.getBootTheme(context.getContentResolver());
                 } catch (Exception e) {
                     Slog.d(TAG, "ThemeConfig.getBootTheme failed, falling back to system theme", e);
-                    config.themeConfig = ThemeConfig.getSystemTheme();
+                    themeConfig = ThemeConfig.getSystemTheme();
                 }
             }
 
-            if (config.themeConfig != null) {
-                attachThemeAssets(assets, config.themeConfig);
-                attachCommonAssets(assets, config.themeConfig);
-                iconsAttached = attachIconAssets(assets, config.themeConfig);
+            if (isThemeable) {
+                if (themeConfig != null) {
+                    attachThemeAssets(assets, themeConfig);
+                    attachCommonAssets(assets, themeConfig);
+                    iconsAttached = attachIconAssets(assets, themeConfig);
+                }
+            } else if (themeConfig != null &&
+                    !ThemeConfig.SYSTEM_DEFAULT.equals(themeConfig.getFontPkgName())) {
+                // use system fonts if not themeable and a theme font is currently in use
+                Typeface.recreateDefaults(true);
             }
-        } else if (!isThemeable && config.themeConfig != null &&
-                !ThemeConfig.SYSTEM_DEFAULT.equals(config.themeConfig.getFontPkgName())) {
-            // use system fonts if not themeable and a theme font is currently in use
-            Typeface.recreateDefaults(true);
         }
 
         r = new Resources(assets, dm, config, compatInfo, token);
@@ -317,19 +319,14 @@ public class ResourcesManager {
             CompatibilityInfo compatInfo, IBinder token, boolean isThemeable) {
         Resources r;
 
-        ThemeConfig themeConfig;
-        if (isThemeable) {
-            ThemeConfig.Builder builder = new ThemeConfig.Builder();
-            builder.defaultOverlay(themePackageName);
-            builder.defaultIcon(themePackageName);
-            builder.defaultFont(themePackageName);
-            themeConfig = builder.build();
-        } else {
-            themeConfig = null;
-        }
+        ThemeConfig.Builder builder = new ThemeConfig.Builder();
+        builder.defaultOverlay(themePackageName);
+        builder.defaultIcon(themePackageName);
+        builder.defaultFont(themePackageName);
+        ThemeConfig themeConfig = builder.build();
 
         ResourcesKey key = new ResourcesKey(resDir, displayId, overrideConfiguration,
-                compatInfo.applicationScale, isThemeable, isThemeable ? themeConfig : null, token);
+                compatInfo.applicationScale, isThemeable, themeConfig, token);
 
         synchronized (this) {
             WeakReference<Resources> wr = mActiveResources.get(key);
@@ -781,10 +778,7 @@ public class ResourcesManager {
     }
 
     private ThemeConfig getThemeConfig() {
-        Configuration config = getConfiguration();
-        if (config != null) {
-            return config.themeConfig;
-        }
-        return null;
+        final Configuration config = getConfiguration();
+        return config != null ? config.themeConfig : null;
     }
 }
